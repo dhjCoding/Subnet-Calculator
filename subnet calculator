@@ -1,0 +1,154 @@
+"""
+subnet_calculator.py
+
+A comprehensive IPv4 subnet calculator.
+
+This module provides a function to calculate key networking details
+for a given IPv4 address and CIDR prefix, such as the network address,
+broadcast address, total hosts, and usable host range. It leverages
+Python's built-in 'ipaddress' module for robust and accurate calculations.
+"""
+
+import ipaddress
+from typing import Dict, Union, Optional
+
+def calculate_subnet_details(ip_with_cidr: str) -> Dict[str, Union[str, int]]:
+    """
+    Calculates detailed subnet information for a given IPv4 address with CIDR.
+
+    This function parses an IPv4 address string combined with its CIDR prefix
+    (e.g., "192.168.1.0/24") and returns a dictionary containing the
+    network address, broadcast address, total number of hosts, and the
+    first and last usable host IP addresses.
+
+    Args:
+        ip_with_cidr (str): A string representing an IPv4 address and its
+                            CIDR prefix (e.g., "192.168.1.0/24").
+
+    Returns:
+        Dict[str, Union[str, int]]: A dictionary containing the following keys:
+            - 'network_address': The network address of the subnet (str).
+            - 'broadcast_address': The broadcast address of the subnet (str).
+            - 'total_hosts': The total number of IP addresses in the subnet (int).
+            - 'usable_hosts': The number of usable host IP addresses (int).
+            - 'first_usable_ip': The first usable IP address in the range (str).
+            - 'last_usable_ip': The last usable IP address in the range (str).
+
+    Raises:
+        TypeError: If the input 'ip_with_cidr' is not a string.
+        ValueError: If the 'ip_with_cidr' string is not a valid IPv4 network
+                    format (e.g., malformed IP, invalid CIDR prefix).
+    """
+    if not isinstance(ip_with_cidr, str):
+        raise TypeError("Input 'ip_with_cidr' must be a string.")
+
+    try:
+        # Create an IPv4 network object from the input string.
+        # This handles parsing and validation of both IP and CIDR.
+        network = ipaddress.ip_network(ip_with_cidr, strict=False)
+
+        # Ensure it's an IPv4 network
+        if not isinstance(network, ipaddress.IPv4Network):
+            raise ValueError("Provided input is not a valid IPv4 network.")
+
+        # Calculate details
+        network_address = str(network.network_address)
+        broadcast_address = str(network.broadcast_address)
+        total_hosts = network.num_addresses
+        usable_hosts = network.num_addresses - 2 # Exclude network and broadcast addresses
+
+        # Determine first and last usable IP, handling /31 and /32 cases
+        first_usable_ip: Optional[str] = None
+        last_usable_ip: Optional[str] = None
+
+        if usable_hosts > 0:
+            # The .hosts() method returns an iterator of usable host IPs.
+            # Convert to list to easily get first and last.
+            host_ips = list(network.hosts())
+            if host_ips:
+                first_usable_ip = str(host_ips[0])
+                last_usable_ip = str(host_ips[-1])
+        else:
+            # For /31 (point-to-point) and /32 (single host) networks,
+            # there are no 'usable' hosts in the traditional sense,
+            # but the IPs themselves might be assigned.
+            # We'll explicitly set them to 'N/A' to avoid confusion.
+            first_usable_ip = "N/A (No usable hosts)"
+            last_usable_ip = "N/A (No usable hosts)"
+
+
+        return {
+            'network_address': network_address,
+            'broadcast_address': broadcast_address,
+            'total_hosts': total_hosts,
+            'usable_hosts': usable_hosts if usable_hosts >= 0 else 0, # Ensure not negative
+            'first_usable_ip': first_usable_ip,
+            'last_usable_ip': last_usable_ip
+        }
+    except ValueError as e:
+        # Catch specific ipaddress module errors and re-raise or provide context
+        raise ValueError(f"Invalid IPv4 network format or CIDR: {e}")
+    except Exception as e:
+        # Catch any other unexpected errors
+        raise RuntimeError(f"An unexpected error occurred during calculation: {e}")
+
+# --- Example Usage (for demonstration and basic testing) ---
+if __name__ == "__main__":
+    print("--- IPv4 Subnet Calculator Examples ---")
+    print("This section demonstrates the functionality of the calculate_subnet_details function.\n")
+
+    test_networks = [
+        # Valid Inputs
+        ("192.168.1.0/24", True),
+        ("10.0.0.0/8", True),
+        ("172.16.10.32/28", True),
+        ("192.168.1.100/27", True), # IP within the network range is fine
+        ("1.1.1.1/30", True), # Small network, 2 usable hosts
+        ("203.0.113.0/31", True), # Point-to-point, 0 usable hosts
+        ("198.51.100.1/32", True), # Single host, 0 usable hosts
+
+        # Invalid Inputs
+        ("192.168.1.0/33", False),       # Invalid CIDR prefix (too high)
+        ("192.168.1.0/-1", False),       # Invalid CIDR prefix (negative)
+        ("256.0.0.0/24", False),         # Invalid IP address
+        ("192.168.1/24", False),         # Malformed IP (missing octet)
+        ("abc.def.ghi.jkl/24", False),   # Non-numeric IP
+        ("192.168.1.0", False),          # Missing CIDR
+        ("", False),                    # Empty string
+        ("192.168.1.0 /24", False),      # Space before CIDR
+        (" 192.168.1.0/24 ", False),     # Leading/trailing spaces (ipaddress handles some, but good to test)
+        ("192.168.1.256/24", False)      # Invalid octet value
+    ]
+
+    for ip_cidr, expect_success in test_networks:
+        print(f"--- Calculating details for: '{ip_cidr}' ---")
+        try:
+            details = calculate_subnet_details(ip_cidr)
+            status = "PASS" if expect_success else "FAIL (Expected failure, but succeeded)"
+            print(f"Status: {status}")
+            for key, value in details.items():
+                print(f"  {key.replace('_', ' ').title()}: {value}")
+            print("-" * 40)
+        except (TypeError, ValueError) as e:
+            status = "PASS" if not expect_success else "FAIL (Expected success, but failed)"
+            print(f"Status: {status} (Error: {e})")
+            print("-" * 40)
+        except Exception as e:
+            print(f"Status: FAIL (Unexpected Exception: {e})")
+            print("-" * 40)
+
+    print("\n--- Additional Type Error Tests ---")
+    non_string_inputs = [
+        (None, False),
+        (123, False),
+        (["192.168.1.0/24"], False),
+    ]
+
+    for ip_cidr, _ in non_string_inputs:
+        try:
+            calculate_subnet_details(ip_cidr)
+            print(f"Test '{ip_cidr}' (Expected TypeError, Actual: No Error) -> FAIL")
+        except TypeError as e:
+            print(f"Test '{ip_cidr}' (Expected TypeError, Actual: {e}) -> PASS (Correctly raised TypeError)")
+        except Exception as e:
+            print(f"Test '{ip_cidr}' (Unexpected Exception: {e}) -> FAIL")
